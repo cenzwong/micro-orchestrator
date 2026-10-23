@@ -1,32 +1,8 @@
-# Micro-Orchestrator Jobs Configuration
-# Field specifications:
-#   name: Unique job name
-#   schedule: Standard cron expression (minute hour day month day-of-week)
-#   dir: Directory where task code resides (relative to orchestrator root or absolute)
-#   python_bin: Path to python executable (relative to dir or absolute)
-#   script: Script filename to execute inside dir
-
 jobs:
-  # - name: crm_sync
-  #   schedule: "* * * * *"
-  #   dir: tasks/crm_sync
-  #   python_bin: .venv/bin/python
-  #   script: main.py
-
-  # - name: report_gen
-  #   schedule: "0 2 * * *"
-  #   dir: tasks/report_gen
-  #   python_bin: .venv/bin/python
-  #   script: main.py
-
-  # - name: test_fail_job
-  #   schedule: "30 3 * * *"
-  #   dir: tasks/test_fail_job
-  #   python_bin: .venv/bin/python
-  #   script: main.py
-
-  # - name: top_altindex
-  #   schedule: "*/10 * * * *"
-  #   dir: tasks/top_altindex
-  #   python_bin: .venv/bin/python
-  #   script: main.py
+  - name: example_job
+    schedule: "*/5 * * * *"
+    dir: tasks/example_job
+    python_bin: python3
+    script: main.py
+    concurrency: forbid
+    timeout_seconds: 60

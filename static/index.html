@@ -19,11 +19,9 @@
       --accent: #38bdf8;
       --accent-hover: #0ea5e9;
       --success: #10b981;
-      --success-glow: rgba(16, 185, 129, 0.25);
       --running: #f59e0b;
-      --running-glow: rgba(245, 158, 11, 0.3);
       --failed: #ef4444;
-      --failed-glow: rgba(239, 68, 68, 0.25);
+      --lost: #6b7280;
     }
 
     * {
@@ -45,7 +43,6 @@
       overflow: hidden;
     }
 
-    /* Top Navigation */
     header {
       height: 56px;
       background: rgba(15, 23, 42, 0.8);
@@ -122,7 +119,6 @@
       border-radius: 4px;
     }
 
-    /* Main Container */
     .container {
       flex: 1;
       display: flex;
@@ -131,7 +127,6 @@
       overflow: hidden;
     }
 
-    /* Left Panel: Monaco Editor */
     .left-panel {
       flex: 1;
       display: flex;
@@ -161,7 +156,6 @@
       height: 100%;
     }
 
-    /* Right Panel: Job Monitor */
     .right-panel {
       flex: 1.3;
       display: flex;
@@ -226,7 +220,6 @@
       background: rgba(255, 255, 255, 0.03);
     }
 
-    /* Badges */
     .badge {
       display: inline-flex;
       align-items: center;
@@ -238,23 +231,20 @@
       letter-spacing: 0.02em;
     }
 
-    .badge-success {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .badge-failed {
-      background: rgba(239, 68, 68, 0.15);
-      color: #f87171;
-      border: 1px solid rgba(239, 68, 68, 0.3);
-    }
-
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-failed { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-timeout { background: rgba(217, 119, 6, 0.15); color: #fba124; border: 1px solid rgba(217, 119, 6, 0.3); }
+    .badge-lost { background: rgba(107, 114, 128, 0.15); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
     .badge-running {
       background: rgba(245, 158, 11, 0.15);
       color: #fbbf24;
       border: 1px solid rgba(245, 158, 11, 0.3);
       animation: pulse 1.8s infinite;
+    }
+    .badge-starting {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
     }
 
     @keyframes pulse {
@@ -271,7 +261,6 @@
       border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    /* Toast Notification */
     #toast {
       position: fixed;
       bottom: 24px;
@@ -287,7 +276,6 @@
     .toast-success { background: #065f46; color: #a7f3d0; border: 1px solid #059669; }
     .toast-error { background: #7f1d1d; color: #fecaca; border: 1px solid #dc2626; }
 
-    /* Modal for Log Viewer */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -344,7 +332,6 @@
     .close-btn:hover { color: var(--text-main); }
   </style>
 
-  <!-- Monaco Editor Loader -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 </head>
 <body>
@@ -356,23 +343,20 @@
     </div>
     <div class="header-actions">
       <span id="sync-indicator" style="font-size: 0.75rem; color: var(--text-muted);">● Auto-syncing</span>
-      <button class="btn btn-secondary" onclick="refreshAll()">↻ Refresh Now</button>
+      <button class="btn btn-secondary" id="refresh-btn">↻ Refresh Now</button>
     </div>
   </header>
 
   <div class="container">
-    <!-- Left Panel: Monaco Editor for jobs.yaml -->
     <div class="left-panel">
       <div class="panel-header">
         <span>📄 jobs.yaml Config</span>
-        <button id="save-btn" class="btn btn-primary btn-sm" onclick="saveConfig()">💾 Save Changes</button>
+        <button id="save-btn" class="btn btn-primary btn-sm">💾 Save Changes</button>
       </div>
       <div id="monaco-editor" class="editor-container"></div>
     </div>
 
-    <!-- Right Panel: Jobs & History -->
     <div class="right-panel">
-      <!-- Defined Jobs Quick List -->
       <div class="section-card jobs-summary">
         <div class="panel-header">
           <span>⚙️ Configured Jobs</span>
@@ -383,7 +367,7 @@
               <tr>
                 <th>Job Name</th>
                 <th>Cron Schedule</th>
-                <th>Directory</th>
+                <th>Concurrency</th>
                 <th>Latest Run</th>
                 <th>Actions</th>
               </tr>
@@ -395,7 +379,6 @@
         </div>
       </div>
 
-      <!-- Execution Runs History -->
       <div class="section-card runs-history">
         <div class="panel-header">
           <span>📜 Execution History (Latest 50 Runs)</span>
@@ -404,17 +387,18 @@
           <table>
             <thead>
               <tr>
-                <th>ID</th>
+                <th>Run ID</th>
                 <th>Job Name</th>
+                <th>Trigger</th>
                 <th>Status</th>
                 <th>Start Time</th>
                 <th>Duration</th>
-                <th>Exit Code</th>
+                <th>Exit</th>
                 <th>Log</th>
               </tr>
             </thead>
             <tbody id="runs-table-body">
-              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading history...</td></tr>
+              <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading history...</td></tr>
             </tbody>
           </table>
         </div>
@@ -422,14 +406,13 @@
     </div>
   </div>
 
-  <!-- Log Viewer Modal -->
   <div id="log-modal" class="modal-overlay">
     <div class="modal">
       <div class="modal-header">
         <span id="log-modal-title">📄 Log Content</span>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="btn btn-secondary btn-sm" onclick="reloadCurrentLog()">↻ Reload</button>
-          <button class="close-btn" onclick="closeLogModal()">&times;</button>
+          <button class="btn btn-secondary btn-sm" id="reload-log-btn">↻ Reload</button>
+          <button class="close-btn" id="close-modal-btn">&times;</button>
         </div>
       </div>
       <div id="log-modal-body" class="modal-body"></div>
@@ -440,9 +423,8 @@
 
   <script>
     let editor = null;
-    let currentLogFile = null;
+    let currentLogRunId = null;
 
-    // Load Monaco Editor
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
     require(['vs/editor/editor.main'], function () {
       monaco.editor.defineTheme('customDark', {
@@ -473,21 +455,17 @@
 
     function showToast(message, isError = false) {
       const toast = document.getElementById('toast');
-      toast.innerText = message;
+      toast.textContent = message;
       toast.className = isError ? 'toast-error' : 'toast-success';
       toast.style.display = 'block';
-      setTimeout(() => {
-        toast.style.display = 'none';
-      }, 4000);
+      setTimeout(() => { toast.style.display = 'none'; }, 4000);
     }
 
     async function loadConfig() {
       try {
         const res = await fetch('/api/config');
         const data = await res.json();
-        if (editor) {
-          editor.setValue(data.content || '');
-        }
+        if (editor) { editor.setValue(data.content || ''); }
       } catch (err) {
         showToast('Failed to load jobs.yaml: ' + err.message, true);
       }
@@ -498,7 +476,7 @@
       const content = editor.getValue();
       const btn = document.getElementById('save-btn');
       btn.disabled = true;
-      btn.innerText = 'Saving...';
+      btn.textContent = 'Saving...';
 
       try {
         const res = await fetch('/api/config', {
@@ -517,7 +495,19 @@
         showToast('Network error while saving: ' + err.message, true);
       } finally {
         btn.disabled = false;
-        btn.innerText = '💾 Save Changes';
+        btn.textContent = '💾 Save Changes';
+      }
+    }
+
+    function getBadgeClass(status) {
+      switch (status) {
+        case 'SUCCESS': return 'badge-success';
+        case 'FAILED': return 'badge-failed';
+        case 'TIMEOUT': return 'badge-timeout';
+        case 'RUNNING': return 'badge-running';
+        case 'STARTING': return 'badge-starting';
+        case 'LOST': return 'badge-lost';
+        default: return 'badge-lost';
       }
     }
 
@@ -526,31 +516,60 @@
         const res = await fetch('/api/jobs');
         const data = await res.json();
         const tbody = document.getElementById('jobs-table-body');
+        tbody.innerHTML = '';
+
         if (!data.jobs || data.jobs.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No jobs configured.</td></tr>';
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td colspan="5" style="text-align: center; color: var(--text-muted);">No jobs configured.</td>';
+          tbody.appendChild(tr);
           return;
         }
 
-        tbody.innerHTML = data.jobs.map(j => {
-          let latestBadge = '<span style="color: var(--text-muted); font-size: 0.75rem;">Never run</span>';
+        data.jobs.forEach(j => {
+          const tr = document.createElement('tr');
+
+          const tdName = document.createElement('td');
+          const strong = document.createElement('strong');
+          strong.textContent = j.name;
+          tdName.appendChild(strong);
+
+          const tdSchedule = document.createElement('td');
+          const pill = document.createElement('span');
+          pill.className = 'code-pill';
+          pill.textContent = j.schedule || '';
+          tdSchedule.appendChild(pill);
+
+          const tdConc = document.createElement('td');
+          tdConc.style.fontSize = '0.75rem';
+          tdConc.style.color = 'var(--text-muted)';
+          tdConc.textContent = j.concurrency || 'allow';
+
+          const tdLatest = document.createElement('td');
           if (j.latest_run) {
             const st = j.latest_run.status;
-            const cls = st === 'SUCCESS' ? 'badge-success' : (st === 'RUNNING' ? 'badge-running' : 'badge-failed');
-            latestBadge = `<span class="badge ${cls}">${st}</span>`;
+            const badge = document.createElement('span');
+            badge.className = `badge ${getBadgeClass(st)}`;
+            badge.textContent = st;
+            tdLatest.appendChild(badge);
+          } else {
+            tdLatest.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">Never run</span>';
           }
 
-          return `
-            <tr>
-              <td><strong>${escapeHtml(j.name)}</strong></td>
-              <td><span class="code-pill">${escapeHtml(j.schedule || '')}</span></td>
-              <td><span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(j.dir || '')}</span></td>
-              <td>${latestBadge}</td>
-              <td>
-                <button class="btn btn-secondary btn-sm" onclick="triggerJob('${escapeHtml(j.name)}')">▶ Run Now</button>
-              </td>
-            </tr>
-          `;
-        }).join('');
+          const tdActions = document.createElement('td');
+          const btnRun = document.createElement('button');
+          btnRun.className = 'btn btn-secondary btn-sm';
+          btnRun.textContent = '▶ Run Now';
+          btnRun.addEventListener('click', () => triggerJob(j.name));
+          tdActions.appendChild(btnRun);
+
+          tr.appendChild(tdName);
+          tr.appendChild(tdSchedule);
+          tr.appendChild(tdConc);
+          tr.appendChild(tdLatest);
+          tr.appendChild(tdActions);
+
+          tbody.appendChild(tr);
+        });
       } catch (err) {
         console.error('Failed to load jobs:', err);
       }
@@ -561,30 +580,80 @@
         const res = await fetch('/api/status?limit=50');
         const data = await res.json();
         const tbody = document.getElementById('runs-table-body');
+        tbody.innerHTML = '';
+
         if (!data.runs || data.runs.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No execution history recorded yet.</td></tr>';
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td colspan="8" style="text-align: center; color: var(--text-muted);">No execution history recorded yet.</td>';
+          tbody.appendChild(tr);
           return;
         }
 
-        tbody.innerHTML = data.runs.map(r => {
-          const st = r.status;
-          const cls = st === 'SUCCESS' ? 'badge-success' : (st === 'RUNNING' ? 'badge-running' : 'badge-failed');
-          const dur = r.duration_sec !== null ? `${r.duration_sec}s` : (st === 'RUNNING' ? 'Running...' : '-');
-          const exitCode = r.exit_code !== null ? `<span class="code-pill">${r.exit_code}</span>` : '-';
-          const logBtn = r.log_file ? `<button class="btn btn-secondary btn-sm" onclick="viewLog('${escapeHtml(r.log_file)}')">🔍 View Log</button>` : '-';
+        data.runs.forEach(r => {
+          const tr = document.createElement('tr');
 
-          return `
-            <tr>
-              <td style="color: var(--text-muted);">#${r.id}</td>
-              <td><strong>${escapeHtml(r.job_name)}</strong></td>
-              <td><span class="badge ${cls}">${st}</span></td>
-              <td><span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(r.start_time || '')}</span></td>
-              <td>${dur}</td>
-              <td>${exitCode}</td>
-              <td>${logBtn}</td>
-            </tr>
-          `;
-        }).join('');
+          const tdId = document.createElement('td');
+          tdId.style.color = 'var(--text-muted)';
+          tdId.style.fontSize = '0.72rem';
+          tdId.textContent = (r.run_id || '').substring(0, 8);
+          tdId.title = r.run_id || '';
+
+          const tdName = document.createElement('td');
+          const strong = document.createElement('strong');
+          strong.textContent = r.job_name;
+          tdName.appendChild(strong);
+
+          const tdTrigger = document.createElement('td');
+          tdTrigger.style.fontSize = '0.72rem';
+          tdTrigger.style.color = 'var(--text-muted)';
+          tdTrigger.textContent = r.trigger_type || 'scheduled';
+
+          const tdStatus = document.createElement('td');
+          const badge = document.createElement('span');
+          badge.className = `badge ${getBadgeClass(r.status)}`;
+          badge.textContent = r.status;
+          tdStatus.appendChild(badge);
+
+          const tdStart = document.createElement('td');
+          tdStart.style.fontSize = '0.75rem';
+          tdStart.style.color = 'var(--text-muted)';
+          tdStart.textContent = r.start_time || '';
+
+          const tdDur = document.createElement('td');
+          tdDur.textContent = r.duration_sec !== null ? `${r.duration_sec}s` : (r.status === 'RUNNING' ? 'Running...' : '-');
+
+          const tdExit = document.createElement('td');
+          if (r.exit_code !== null) {
+            const pill = document.createElement('span');
+            pill.className = 'code-pill';
+            pill.textContent = r.exit_code;
+            tdExit.appendChild(pill);
+          } else {
+            tdExit.textContent = '-';
+          }
+
+          const tdLog = document.createElement('td');
+          if (r.run_id) {
+            const btnLog = document.createElement('button');
+            btnLog.className = 'btn btn-secondary btn-sm';
+            btnLog.textContent = '🔍 View Log';
+            btnLog.addEventListener('click', () => viewLog(r.run_id));
+            tdLog.appendChild(btnLog);
+          } else {
+            tdLog.textContent = '-';
+          }
+
+          tr.appendChild(tdId);
+          tr.appendChild(tdName);
+          tr.appendChild(tdTrigger);
+          tr.appendChild(tdStatus);
+          tr.appendChild(tdStart);
+          tr.appendChild(tdDur);
+          tr.appendChild(tdExit);
+          tr.appendChild(tdLog);
+
+          tbody.appendChild(tr);
+        });
       } catch (err) {
         console.error('Failed to load status:', err);
       }
@@ -594,44 +663,46 @@
       try {
         const res = await fetch(`/api/run/${encodeURIComponent(jobName)}`, { method: 'POST' });
         const result = await res.json();
-        if (res.ok) {
-          showToast(`Job '${jobName}' dispatched!`);
+        if (res.status === 202) {
+          showToast(`Job '${jobName}' dispatched successfully!`);
           setTimeout(refreshAll, 300);
+        } else if (res.status === 409) {
+          showToast(`Cannot run: ${result.message}`, true);
         } else {
-          showToast(result.detail || 'Failed to trigger job', true);
+          showToast(result.detail || result.message || 'Failed to trigger job', true);
         }
       } catch (err) {
         showToast('Trigger error: ' + err.message, true);
       }
     }
 
-    async function viewLog(filePath) {
-      currentLogFile = filePath;
-      document.getElementById('log-modal-title').innerText = `📄 Log: ${filePath}`;
+    async function viewLog(runId) {
+      currentLogRunId = runId;
+      document.getElementById('log-modal-title').textContent = `📄 Log for Run ID: ${runId}`;
       document.getElementById('log-modal').style.display = 'flex';
       reloadCurrentLog();
     }
 
     async function reloadCurrentLog() {
-      if (!currentLogFile) return;
+      if (!currentLogRunId) return;
       const body = document.getElementById('log-modal-body');
       try {
-        const res = await fetch(`/api/logs?file=${encodeURIComponent(currentLogFile)}&lines=300`);
+        const res = await fetch(`/api/runs/${encodeURIComponent(currentLogRunId)}/logs?lines=300`);
         const data = await res.json();
         if (res.ok) {
-          body.innerText = data.content || '(Log file is currently empty)';
+          body.textContent = data.content || '(Log file is currently empty)';
           body.scrollTop = body.scrollHeight;
         } else {
-          body.innerText = 'Error: ' + (data.detail || 'Could not load log');
+          body.textContent = 'Error: ' + (data.detail || 'Could not load log');
         }
       } catch (err) {
-        body.innerText = 'Error fetching log: ' + err.message;
+        body.textContent = 'Error fetching log: ' + err.message;
       }
     }
 
     function closeLogModal() {
       document.getElementById('log-modal').style.display = 'none';
-      currentLogFile = null;
+      currentLogRunId = null;
     }
 
     function refreshAll() {
@@ -639,26 +710,19 @@
       loadStatus();
     }
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
+    document.getElementById('save-btn').addEventListener('click', saveConfig);
+    document.getElementById('refresh-btn').addEventListener('click', refreshAll);
+    document.getElementById('reload-log-btn').addEventListener('click', reloadCurrentLog);
+    document.getElementById('close-modal-btn').addEventListener('click', closeLogModal);
 
-    // Auto-polling every 3.5s for real-time tracking
     setInterval(() => {
       loadJobs();
       loadStatus();
-      if (currentLogFile) {
+      if (currentLogRunId) {
         reloadCurrentLog();
       }
     }, 3500);
 
-    // Initial load
     refreshAll();
   </script>
 </body>
