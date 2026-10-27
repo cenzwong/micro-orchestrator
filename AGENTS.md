@@ -46,11 +46,13 @@ When making any modifications to this project, **the following invariants must b
    - name: my_task
      schedule: "15 * * * *"
      dir: tasks/my_task
-     python_bin: .venv/bin/python
-     script: main.py
+     command:
+       - .venv/bin/python
+       - main.py
      concurrency: forbid
      timeout_seconds: 300
    ```
+   *(Note: Micro-Orchestrator is language-agnostic. Commands can run Bash, Node, Rust, Docker, or any executable)*
 5. Verify execution:
    ```bash
    python dispatch.py --run my_task

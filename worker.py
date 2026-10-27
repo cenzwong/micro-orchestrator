@@ -1,3 +1,4 @@
+import dispatch
 """
 Micro-Orchestrator Worker Process.
 
@@ -67,21 +68,17 @@ def run_worker(run_id: str, db_path: str = DEFAULT_DB_PATH):
         base_dir_cfg = config.get("_base_dir", BASE_DIR)
         task_dir = os.path.abspath(os.path.join(base_dir_cfg, raw_dir)) if not os.path.isabs(raw_dir) else raw_dir
 
-        raw_python = config.get("python_bin", "python3")
-        if not os.path.isabs(raw_python):
-            candidate1 = os.path.join(task_dir, raw_python)
-            candidate2 = os.path.join(base_dir_cfg, raw_python)
-            if os.path.exists(candidate1):
-                python_bin = os.path.abspath(candidate1)
-            elif os.path.exists(candidate2):
-                python_bin = os.path.abspath(candidate2)
-            else:
-                python_bin = raw_python
-        else:
-            python_bin = raw_python
-
-        script = config.get("script", "main.py")
-        script_abs = os.path.abspath(os.path.join(task_dir, script)) if not os.path.isabs(script) else script
+        try:
+            argv = dispatch.build_command(config, task_dir, base_dir_cfg)
+        except Exception as e:
+            err_msg = f"Failed to build command from configuration: {e}"
+            cursor.execute(
+                "UPDATE job_runs SET status = 'FAILED', error_desc = ?, end_time = ? WHERE run_id = ? AND status IN ('STARTING', 'RUNNING')",
+                (err_msg, utc_now_str(), run_id),
+            )
+            conn.commit()
+            print(err_msg, file=sys.stderr)
+            sys.exit(1)
 
         timeout_seconds = config.get("timeout_seconds")
         if timeout_seconds is not None:
@@ -129,12 +126,13 @@ def run_worker(run_id: str, db_path: str = DEFAULT_DB_PATH):
     # Launch sub-process in isolated process group
     try:
         proc = subprocess.Popen(
-            [python_bin, script_abs],
+            argv,
             cwd=task_dir,
             stdout=log_fd,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
+            shell=False,
         )
     except Exception as e:
         log_fd.close()
