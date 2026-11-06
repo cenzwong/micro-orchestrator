@@ -2,7 +2,8 @@ jobs:
   - name: example_job
     schedule: "*/5 * * * *"
     dir: tasks/example_job
-    python_bin: python3
-    script: main.py
+    command:
+      - python3
+      - main.py
     concurrency: forbid
     timeout_seconds: 60

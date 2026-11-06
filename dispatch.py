@@ -18,10 +18,135 @@ import sys
 import uuid
 from croniter import croniter
 
+import re
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "orchestrator.db")
 DEFAULT_CONFIG_PATH = os.path.join(BASE_DIR, "jobs.yaml")
 STALE_HEARTBEAT_THRESHOLD_SEC = 90  # 90 seconds threshold as agreed
+
+JOB_NAME_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def validate_job_config(job: dict):
+    """
+    Validates a job configuration dictionary against schema rules.
+    Raises ValueError if invalid.
+    """
+    if not isinstance(job, dict):
+        raise ValueError("Job configuration must be a dictionary")
+
+    name = job.get("name")
+    if not name or not isinstance(name, str) or not JOB_NAME_REGEX.match(name):
+        raise ValueError(f"Job missing or invalid 'name': {name!r}. Must contain only alphanumeric, '_' or '-'.")
+
+    schedule = job.get("schedule")
+    if not schedule or not isinstance(schedule, str) or not croniter.is_valid(schedule):
+        raise ValueError(f"Job '{name}' has invalid or missing cron schedule: {schedule!r}")
+
+    raw_dir = job.get("dir")
+    if not raw_dir or not isinstance(raw_dir, str) or not raw_dir.strip():
+        raise ValueError(f"Job '{name}' missing or invalid 'dir'.")
+
+    has_command = "command" in job
+    has_script = "script" in job
+    has_python_bin = "python_bin" in job
+
+    if has_command and (has_script or has_python_bin):
+        raise ValueError(
+            f"Job '{name}' cannot specify both 'command' and legacy execution fields ('script' or 'python_bin')."
+        )
+
+    if not has_command and not has_script:
+        raise ValueError(f"Job '{name}' must specify either 'command' or legacy 'script'.")
+
+    if has_command:
+        cmd = job["command"]
+        if not isinstance(cmd, list) or len(cmd) == 0:
+            raise ValueError(f"Job '{name}' field 'command' must be a non-empty list of strings.")
+        for idx, element in enumerate(cmd):
+            if not isinstance(element, str):
+                raise ValueError(f"Job '{name}' field 'command' element at index {idx} must be a string.")
+        if not cmd[0].strip():
+            raise ValueError(f"Job '{name}' executable (first element of 'command') cannot be empty or whitespace.")
+
+    if has_script:
+        script = job["script"]
+        if not isinstance(script, str) or not script.strip():
+            raise ValueError(f"Job '{name}' field 'script' must be a non-empty string.")
+        if has_python_bin:
+            py_bin = job["python_bin"]
+            if not isinstance(py_bin, str) or not py_bin.strip():
+                raise ValueError(f"Job '{name}' field 'python_bin' must be a non-empty string.")
+
+    concurrency = job.get("concurrency", "allow")
+    if concurrency not in ("allow", "forbid"):
+        raise ValueError(f"Job '{name}' invalid concurrency '{concurrency}'. Must be 'allow' or 'forbid'.")
+
+    timeout = job.get("timeout_seconds")
+    if timeout is not None:
+        try:
+            t_val = float(timeout)
+            if t_val <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise ValueError(f"Job '{name}' timeout_seconds must be a positive number.")
+
+
+def build_command(config: dict, task_dir: str, base_dir: str) -> list[str]:
+    """
+    Constructs a normalized argument vector for subprocess execution.
+    Supports new 'command' list schema as well as legacy 'python_bin' + 'script'.
+    """
+    if "command" in config:
+        cmd = config["command"]
+        if not isinstance(cmd, list) or len(cmd) == 0:
+            raise ValueError("'command' must be a non-empty list of strings")
+        executable = cmd[0]
+        if not isinstance(executable, str) or not executable.strip():
+            raise ValueError("Executable (first element of 'command') must be a non-empty string")
+
+        args = []
+        for arg in cmd[1:]:
+            if not isinstance(arg, str):
+                raise ValueError(f"Command argument {arg!r} must be a string")
+            args.append(arg)
+
+        if os.path.isabs(executable):
+            resolved_exec = executable
+        elif "/" in executable:
+            resolved_exec = os.path.abspath(os.path.join(task_dir, executable))
+        else:
+            resolved_exec = executable
+
+        return [resolved_exec] + args
+
+    elif "script" in config:
+        script = config["script"]
+        if not isinstance(script, str) or not script.strip():
+            raise ValueError("'script' must be a non-empty string")
+
+        raw_python = config.get("python_bin", "python3")
+        if not isinstance(raw_python, str) or not raw_python.strip():
+            raise ValueError("'python_bin' must be a non-empty string")
+
+        if not os.path.isabs(raw_python):
+            candidate1 = os.path.join(task_dir, raw_python)
+            candidate2 = os.path.join(base_dir, raw_python)
+            if os.path.exists(candidate1):
+                python_bin = os.path.abspath(candidate1)
+            elif os.path.exists(candidate2):
+                python_bin = os.path.abspath(candidate2)
+            else:
+                python_bin = raw_python
+        else:
+            python_bin = raw_python
+
+        script_abs = os.path.abspath(os.path.join(task_dir, script)) if not os.path.isabs(script) else script
+        return [python_bin, script_abs]
+    else:
+        raise ValueError("Job configuration missing 'command' or 'script'")
+
 
 
 def utc_now_str() -> str:
@@ -40,7 +165,10 @@ def load_jobs(config_path: str = DEFAULT_CONFIG_PATH) -> list:
         return []
     with open(config_path, "r", encoding="utf-8") as f:
         data = yaml_safe_load(f) or {}
-    return data.get("jobs", [])
+    jobs = data.get("jobs", [])
+    for job in jobs:
+        validate_job_config(job)
+    return jobs
 
 
 def yaml_safe_load(f):
@@ -290,9 +418,14 @@ def main():
         jobs = load_jobs()
         print(f"Loaded {len(jobs)} jobs from {DEFAULT_CONFIG_PATH}:")
         for j in jobs:
-            print(
-                f"  - {j.get('name')}: schedule='{j.get('schedule')}' dir='{j.get('dir')}' script='{j.get('script')}' concurrency='{j.get('concurrency', 'allow')}'"
-            )
+            if "command" in j:
+                print(
+                    f"  - {j.get('name')}: schedule='{j.get('schedule')}' dir='{j.get('dir')}' command={j.get('command')} concurrency='{j.get('concurrency', 'allow')}'"
+                )
+            else:
+                print(
+                    f"  - {j.get('name')}: schedule='{j.get('schedule')}' dir='{j.get('dir')}' script='{j.get('script')}' concurrency='{j.get('concurrency', 'allow')}'"
+                )
         return
 
     triggered = dispatch_jobs(force_name=args.run)

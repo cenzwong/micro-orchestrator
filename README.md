@@ -90,11 +90,33 @@ jobs:
   - name: example_job           # Required: Unique job identifier
     schedule: "*/5 * * * *"     # Required: Standard 5-field Cron expression
     dir: tasks/example_job      # Required: Working directory
-    python_bin: .venv/bin/python# Optional: Python binary (defaults to system python3)
-    script: main.py             # Required: Entry script
+    command:                    # Required: Argument vector list (language-agnostic)
+      - .venv/bin/python
+      - main.py
     concurrency: forbid         # Optional: 'allow' (default) or 'forbid'
     timeout_seconds: 600        # Optional: Execution timeout in seconds
+
+  - name: bash_job
+    schedule: "0 3 * * *"
+    dir: tasks/bash_job
+    command:
+      - bash
+      - myscript.sh
+
+  - name: node_job
+    schedule: "0 * * * *"
+    dir: tasks/node_job
+    command:
+      - node
+      - index.js
 ```
+
+### Executable Resolution Rules
+- **Absolute path** (e.g. `/usr/bin/python3`): Used directly as specified.
+- **Relative path containing `/`** (e.g. `.venv/bin/python` or `./script.sh`): Resolved relative to job directory (`dir`).
+- **Bare command name** (e.g. `python3`, `bash`, `node`): Looked up via process system `PATH`.
+
+*Note: Legacy configurations using `python_bin` and `script` remain fully supported for backward compatibility.*
 
 ---
 

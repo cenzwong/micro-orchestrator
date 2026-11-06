@@ -69,45 +69,22 @@ def update_config(payload: ConfigUpdatePayload):
     if not isinstance(data, dict) or "jobs" not in data or not isinstance(data["jobs"], list):
         raise HTTPException(status_code=400, detail="Invalid schema: root must be a dict containing a 'jobs' list.")
 
-    # 2. Validate individual job fields & cron expressions
+    # 2. Validate individual job fields & cron expressions using shared validator
     seen_names = set()
     for idx, job in enumerate(data["jobs"]):
         if not isinstance(job, dict):
             raise HTTPException(status_code=400, detail=f"Job at index {idx} must be a dictionary.")
 
         name = job.get("name")
-        if not name or not isinstance(name, str) or not JOB_NAME_REGEX.match(name):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Job at index {idx} has invalid or missing 'name'. Must contain alphanumeric, '_' or '-'.",
-            )
         if name in seen_names:
             raise HTTPException(status_code=400, detail=f"Duplicate job name '{name}' found.")
+
+        try:
+            dispatch.validate_job_config(job)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         seen_names.add(name)
-
-        schedule = job.get("schedule")
-        if not schedule or not croniter.is_valid(schedule):
-            raise HTTPException(status_code=400, detail=f"Job '{name}' has invalid cron expression: '{schedule}'")
-
-        if not job.get("dir"):
-            raise HTTPException(status_code=400, detail=f"Job '{name}' missing 'dir'.")
-        if not job.get("script"):
-            raise HTTPException(status_code=400, detail=f"Job '{name}' missing 'script'.")
-
-        concurrency = job.get("concurrency", "allow")
-        if concurrency not in ("allow", "forbid"):
-            raise HTTPException(
-                status_code=400, detail=f"Job '{name}' invalid concurrency '{concurrency}'. Must be 'allow' or 'forbid'."
-            )
-
-        timeout = job.get("timeout_seconds")
-        if timeout is not None:
-            try:
-                t_val = float(timeout)
-                if t_val <= 0:
-                    raise ValueError()
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Job '{name}' timeout_seconds must be a positive number.")
 
     # 3. Safe atomic write
     temp_path = f"{CONFIG_PATH}.tmp"
